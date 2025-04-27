@@ -1,16 +1,12 @@
-**CHECK RELEASE NOTES FOR CURRENTLY ACTIVE FEATURES**
-
 # Aseprite Installer
 A basic installer that downloads and builds Aseprite from scratch.
 
 REMEMBER TO GO BUY ASEPRITE IF YOU LIKE THE SOFTWARE
 
-This script intends to make it easier to install...
-
-...except that it's on Linux. You probably can easily compile Aseprite if you use Linux
+This script intends to auto make Asperite.
 
 # Install Stuff
-FOR UBUNTU-BASED DISTROS ONLY (Might make a windows batch soon... maybe)
+FOR FEDORA-BASED DISTROS ONLY (Might make a windows batch soon... maybe)
 
 Download the shell script from releases. Mark executable then run from command line, and run.
 Customize the install process with the following arguments
@@ -40,3 +36,5 @@ Want to change your build parameters? Here's a few switches to change how the pr
 By default, the installer will package an updater. The updater will keep a copy of all nessecary build files as well as an additional script that you can run to redownload and update Aseprite by reusing previously downloaded deps and reusing options that were used when initially building Aseprite
 
 (Will be updated in the future)
+
+This is a fork of an older project that adapts it to work on Fedora Linux and slightly improves the code.
