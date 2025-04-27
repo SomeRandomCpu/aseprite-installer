@@ -1,134 +1,117 @@
-# This script was written by KtheVeg (https://github.com/KtheVeg)
-# This script loosely follows what's mentionned in the following link https://alexgonzalezc.dev/posts/how-to-build-aseprite-from-source.html, however, it was adapted to be functional in 22.04 instead of 18.04
-# Tested in a fresh installation of Pop!_OS 22.04. Results may vary
+# This script was written by Duplicake (https://duplicake.fyi) and forked from https://github.com/KtheVeg/aseprite-installer
+# Tested in a fresh installation of Fedora 42. Results may vary
 
 # LICENSE: Follows the MIT 3.0 license
+#!/bin/bash
 
-# Also, for whoever reads through this code, you can improve it at https://github.com/KtheVeg
+set -e
+set -u
+set -o pipefail
 
-# A few functions often used
-function chkmkdir {
-	if [[ ! -d $1 ]]; then 
-        mkdir $1
-    else
-        rm -R $1 && mkdir $1
-    fi
+DEFAULT_INSTALL_DIR="$PWD/aseprite"
+DEFAULT_BUILD_DIR="$PWD/aseprite_build_temp"
+
+installDirectory="${1:-$DEFAULT_INSTALL_DIR}"
+buildDirectory="${2:-$DEFAULT_BUILD_DIR}"
+
+log_info() {
+    echo "INFO: $1"
 }
 
-function failCheck {
-    if [ $1 -ne 0 ]; then # This code is reused so many times. Adding a simple function
-    	echo $2
-	    exit $1
-    fi
+log_warn() {
+    echo "WARN: $1"
 }
 
+log_error() {
+    echo "ERROR: $1" >&2
+    exit 1
+}
 
-
-
-# Start actual install flow
-echo "Installing Aseprite"
-echo "==================="
+echo "Installing Aseprite for Fedora"
+echo "=============================="
 echo
-echo "Note: Sudo access required for deps download. To skip deps download, export SKIPDEPS=1"
 
-# Check arguments
-installDirectory=$PWD
-if [[ $1 != "" ]]; then
-    if [ -f $1 ]; then
-        installDirectory=$1
-    fi
-fi
-buildDirectory=$PWD
-if [[ $2 != "" ]]; then
-    if [ -f $2 ]; then
-        buildDirectory=$2
-    fi
-fi
+log_info "Install Location: $installDirectory"
+log_info "Build Location:   $buildDirectory"
+echo "Note: Sudo access required for dependency download. To skip, export SKIPDEPS=1"
+echo
 
-# Let the user know where it's going to be installed/built
-echo "INFO: Installing to $installDirectory/aseprite. To change, set first variable to a valid path"
-echo "INFO: Building temp files to to $buildDirectory/asepritebuild. To change, set second variable to a valid path"
-
-# Install dependancies if not skipped
-if [[ $SKIPDEPS -ne 1 ]]; then
-    echo "INFO: Downloading required deps"
-    sudo apt-get install -y g++ cmake ninja-build libx11-dev libxcursor-dev libgl1-mesa-dev libfontconfig1-dev xorg-dev git unzip wget
-    retval=$?
-    if [ $retval -ne 0 ]; then # Deps download doesn't fail if they're already downloaded, so if it simply fails, then it's probably gonna fail, so we exit prematurely
-    	echo "ERROR: Dependancy Downloads failed. Can't continue"
-	    exit $retval
-    fi
+if [[ "${SKIPDEPS:-0}" -ne 1 ]]; then
+    log_info "Downloading required dependencies using dnf..."
+    sudo dnf install -y \
+        gcc-c++ \
+        cmake \
+        ninja-build \
+        libX11-devel \
+        libXcursor-devel \
+        mesa-libGL-devel \
+        fontconfig-devel \
+        git \
+        unzip \
+        wget || log_error "Dependency installation failed. Cannot continue."
+    log_info "Dependencies installed successfully."
 else
-    echo "WARN: Deps download manually skipped"
+    log_warn "Dependency download manually skipped via SKIPDEPS=1."
 fi
 
+log_info "Setting up build directory structure in $buildDirectory"
+mkdir -p "$buildDirectory/deps/skia"
 
-# Basically set up temporary build directories
-echo "INFO: Setting up directory structure"
-cd $buildDirectory
-chkmkdir asepritebuild
-cd asepritebuild
-chkmkdir deps
-cd deps
-mkdir skia
-# We should now be in a completely clean directory
+cd "$buildDirectory/deps"
 
-echo "INFO: Downloading Skia Build (x64)"
-# Download and extract https://github.com/aseprite/skia/releases/latest/download/Skia-Linux-Release-x64-libstdc++.zip
-wget https://github.com/aseprite/skia/releases/latest/download/Skia-Linux-Release-x64-libstdc++.zip
-failCheck $? "ERROR: Failed to download Skia. Exit."
-unzip Skia-Linux-Release-x64-libstdc++.zip -d skia
-failCheck $? "ERROR: Failed to extract Skia. Unzip Fail"
+SKIA_VERSION="m102-861e5ab743"
+SKIA_REPO="https://github.com/aseprite/skia/releases"
+SKIA_FILENAME="Skia-Linux-Release-x64-libstdc++.zip"
+SKIA_URL="${SKIA_REPO}/download/${SKIA_VERSION}/${SKIA_FILENAME}"
 
-cd $buildDirectory/asepritebuild
+if [ ! -f "$SKIA_FILENAME" ]; then
+    log_info "Downloading Skia Build ($SKIA_VERSION x64)..."
+    wget -O "$SKIA_FILENAME" "$SKIA_URL" || log_error "Failed to download Skia."
+else
+    log_info "Skia archive already downloaded."
+fi
 
-echo "INFO: Downloading Aseprite Source Code"
-git clone --recursive https://github.com/aseprite/aseprite.git
-failCheck $? "ERROR: Failed to get Aseprite Source"
-echo "INFO: Downloaded Aseprite Source Code. Building"
-cd aseprite
-mkdir build
+log_info "Extracting Skia..."
+unzip -o "$SKIA_FILENAME" -d skia || log_error "Failed to extract Skia."
+
+cd "$buildDirectory"
+
+if [ ! -d "aseprite/.git" ]; then
+    log_info "Downloading Aseprite Source Code..."
+    git clone --recursive https://github.com/aseprite/aseprite.git || log_error "Failed to clone Aseprite source."
+    cd aseprite
+else
+    log_info "Aseprite source directory found. Updating..."
+    cd aseprite
+    git pull --recurse-submodules || log_warn "Failed to update Aseprite source. Continuing with existing version."
+fi
+
+log_info "Aseprite source code ready. Building..."
+mkdir -p build
 cd build
 
-echo "INFO: Generating build files"
+log_info "Generating build files with CMake..."
 cmake \
+  -DCMAKE_INSTALL_PREFIX="$installDirectory" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DLAF_OS_BACKEND=skia \
-  -DSKIA_DIR=$buildDirectory/asepritebuild/deps/skia \
-  -DSKIA_OUT_DIR=$buildDirectory/asepritebuild/deps/skia/out/Release \
+  -DSKIA_DIR="$buildDirectory/deps/skia" \
+  -DSKIA_LIBRARY_DIR="$buildDirectory/deps/skia/out/Release-x64" \
+  -DSKIA_LIBRARY="$buildDirectory/deps/skia/out/Release-x64/libskia.a" \
   -G Ninja \
-  ..
-failCheck $? "ERROR: Failed to generate build files"
-echo "INFO: Building Aseprite"
-ninja aseprite
-failCheck $? "ERROR: Failed to build"
-cd ..
+  .. || log_error "CMake configuration failed."
 
-echo "INFO: Installing Aseprite"
-cp -R build/bin $installDirectory/aseprite
+log_info "Building Aseprite using Ninja..."
+ninja aseprite || log_error "Aseprite build failed."
 
-echo "INFO: Aseprite installed to $installDirectory/aseprite"
+log_info "Installing Aseprite..."
+ninja install || log_error "Aseprite installation failed."
 
-echo "-- ASEPRITE WAS COMPILED --"
-echo "To run, type $installDirectory/aseprite/aseprite"
-echo "To uninstall, delete $installDirectory/aseprite"
-
-#if [[ $SKIP_UPDATER -ne 1 ]]; then
-#    echo "INFO: Installing Aseprite Updater"
-    
-#    echo "INFO: Step 1: Copying Build files"
-#    cp $buildDirectory/asepritebuild $installDirectory/aseupdbld
-#    failCheck $? "ERROR: Failed to copy build files"
-#    
-#    echo "INFO: Step 2: Hashing skia"
-#    cd $installDirectory/aseupdbld/deps
-#    sha256sum skia/Skia-Linux-Release-x64-libstdc++.zip > skia.sha256
-#    failCheck $? "ERROR: Failed to hash skia"
-
-#    echo "INFO: Step 3: Downloading update script"
-#    wget https://github.com/ktheveg/aseprite-installer/releases/latest/download/updater.sh
-
-#fi
-
-echo "==================="
-echo "Thanks for using the unofficial aseprite auto-compiler"
+echo
+echo "=============================="
+echo "-- ASEPRITE INSTALLATION COMPLETE --"
+echo "Aseprite installed to: $installDirectory/bin"
+echo "To run, execute:       $installDirectory/bin/aseprite"
+echo "To uninstall, delete:  $installDirectory"
+echo "=============================="
+echo "Thanks for using this Aseprite auto-compiler script!"
